@@ -49,12 +49,56 @@ export function isChallenge(html: string): boolean {
   return /<title[^>]*>\s*(?:Just a moment|Attention Required)|_cf_chl_opt|cf-chl-widget|Checking your browser/i.test(html);
 }
 
+function browserHeaders(ctx: ProviderContext): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const key of Object.keys(ctx.commonHeaders || {})) {
+    // The desktop defaults mix Chrome 137's UA with Chromium/Edge 120 hints.
+    // Let the actual browser generate its own client hints.
+    if (!/^sec-ch-/i.test(key)) headers[key] = ctx.commonHeaders[key];
+  }
+  return headers;
+}
+
+function pageError(ctx: ProviderContext, html: string): string | undefined {
+  const $ = ctx.cheerio.load(html);
+  const heading = clean($("title, h1").text());
+  if (/\b403\b|\bforbidden\b|access denied/i.test(heading)) return "403 Forbidden";
+  if (/\b(?:404|500|502|503|522|524)\b/.test(heading)) return heading;
+  if (/Access to this resource on the server is denied/i.test($("body").text())) return "403 Forbidden";
+  return undefined;
+}
+
+// Observe rendered content only. This does not solve or bypass a challenge.
+// Desktop has no Done button: the supported postMessage contract closes the window.
+const READ_PAGE_SCRIPT = `(function () {
+  var sent = false;
+  function inspect() {
+    if (sent || document.readyState !== 'complete' || !document.body) return;
+    var html = document.documentElement.outerHTML;
+    var title = document.title || '';
+    if (/Just a moment|Attention Required|Checking your browser/i.test(title) || /_cf_chl_opt|cf-chl-widget/.test(html)) return;
+    var heading = title + ' ' + Array.prototype.map.call(document.querySelectorAll('h1'), function (e) { return e.textContent; }).join(' ');
+    var denied = /\\b(?:403|404|500|502|503|522|524)\\b|forbidden|access denied/i.test(heading);
+    var content = document.querySelector('article.entry-card, .entry-content, a[href*="/l.php?"]');
+    if (!denied && !content) return;
+    if (!window.ReactNativeWebView || !window.ReactNativeWebView.postMessage) return;
+    sent = true;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ __waf: true, data: html }));
+    clearInterval(timer);
+  }
+  var timer = setInterval(inspect, 500);
+  inspect();
+})(); true;`;
+
 export async function requestHeaders(ctx: ProviderContext, url: string, referer?: string): Promise<Record<string, string>> {
-  const headers: Record<string, string> = { ...ctx.commonHeaders, ...(referer ? { Referer: referer } : {}) };
-  const session = await setting<{ cookies: string; userAgent: string; expires: number } | undefined>(ctx, "waf:" + originOf(url), undefined);
+  const headers: Record<string, string> = { ...browserHeaders(ctx), ...(referer ? { Referer: referer } : {}) };
+  const session = await setting<{ cookies: string; userAgent: string; expires: number } | undefined>(ctx, "waf-v2:" + originOf(url), undefined);
   if (session && session.expires > Date.now()) {
     if (session.cookies) headers.Cookie = session.cookies;
-    if (session.userAgent) headers["User-Agent"] = session.userAgent;
+    if (session.userAgent) {
+      Object.keys(headers).filter(key => /^user-agent$/i.test(key)).forEach(key => delete headers[key]);
+      headers["User-Agent"] = session.userAgent;
+    }
   }
   return headers;
 }
@@ -75,7 +119,7 @@ export async function page(ctx: ProviderContext, url: string, signal?: AbortSign
     });
     checkAbort(signal);
     const html = typeof response.data === "string" ? response.data : "";
-    if (!isChallenge(html)) {
+    if (!isChallenge(html) && !pageError(ctx, html)) {
       if (!html.trim()) throw new Error("The website returned an empty page");
       return { html, url: response.request?.responseURL || response.request?.res?.responseUrl || target };
     }
@@ -93,14 +137,18 @@ export async function page(ctx: ProviderContext, url: string, signal?: AbortSign
     const result = await ctx.openWebView(target, {
       title: "MKVCinemas verification",
       description: "Complete the website verification to load this page.",
-      headers: { ...ctx.commonHeaders, ...(referer ? { Referer: referer } : {}) },
+      headers: { ...browserHeaders(ctx), ...(referer ? { Referer: referer } : {}) },
       timeoutMs: 120000,
+      force: true,
+      injectedJavaScript: READ_PAGE_SCRIPT,
     });
     checkAbort(signal);
     if (result.data?.trim() && !isChallenge(result.data)) {
+      const denied = pageError(ctx, result.data);
+      if (denied) throw new Error(`The website returned ${denied} inside Vega's verification browser. It is denying this embedded browser; a normal browser session does not automatically carry over to Vega.`);
       const resolved = result.url || target;
       if (ctx.kvStore && originOf(resolved) === originOf(target)) {
-        await ctx.kvStore.set("waf:" + originOf(target), {
+        await ctx.kvStore.set("waf-v2:" + originOf(target), {
           cookies: result.cookies, userAgent: result.userAgent, expires: Date.now() + 30 * 60 * 1000,
         });
       }

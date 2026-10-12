@@ -125,7 +125,7 @@ test('Cloudflare invokes WebView and saves cookies scoped to the challenged orig
   const posts = await getPosts({ ...params(ctx), filter: '/' });
   assert.equal(posts.length, 2);
   assert.equal(opened, 1);
-  assert.equal(storage.get('waf:https://mkvcinemas.fo').cookies, 'cf_clearance=test');
+  assert.equal(storage.get('waf-v2:https://mkvcinemas.fo').cookies, 'cf_clearance=test');
 });
 test('unavailable or disabled WebView returns an actionable error; ordinary rate limits do not open it', async () => {
   const blocked = context({ settings: { useWebView: false }, get: async () => ({ data: '<title>Just a moment...</title>' }) });
@@ -135,7 +135,7 @@ test('unavailable or disabled WebView returns an actionable error; ordinary rate
   await assert.rejects(getPosts({ ...params(limited.ctx), filter: '/' }), /rate limit reached/);
 });
 test('HEAD redirects do not leak host cookies to the media origin', async () => {
-  const { ctx, calls } = context({ settings: { 'waf:https://mkvcdn.com': { cookies: 'secret=host', userAgent: 'webview-agent', expires: Date.now() + 60000 } } });
+  const { ctx, calls } = context({ settings: { 'waf-v2:https://mkvcdn.com': { cookies: 'secret=host', userAgent: 'webview-agent', expires: Date.now() + 60000 } } });
   const streams = await getStream({ link: 'https://mkvcdn.com/cloud/part1', type: 'movie', providerContext: ctx });
   assert.equal(calls.find(call => call.method === 'HEAD' && /mkvcdn/.test(call.url)).config.headers.Cookie, 'secret=host');
   assert.equal(calls.find(call => call.method === 'HEAD' && /media\.example/.test(call.url)).config.headers.Cookie, undefined);
@@ -179,4 +179,38 @@ test('all six built modules load without require, module, or Node built-ins', as
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'dist', 'mkvcinemas', name + '.js'), 'utf8'), sandbox);
     assert.ok(Object.keys(sandbox.exports).length > 0, name);
   }
+});
+
+test('plain LiteSpeed denial is rejected and never saved as successful verification', async () => {
+  const denial = '<html><head><title>403 Forbidden</title></head><body><h1>403</h1><h2>Forbidden</h2><p>Access to this resource on the server is denied!</p></body></html>';
+  const { ctx, storage } = context({ get: async () => ({ data: denial }) });
+  ctx.openWebView = async url => ({ data: denial, cookies: 'bad=session', userAgent: 'agent', url });
+  await assert.rejects(getPosts({ ...params(ctx), filter: '/' }), /403 Forbidden inside Vega/);
+  assert.equal(storage.has('waf-v2:https://mkvcinemas.fo'), false);
+});
+
+test('verification sends a desktop completion message only after content loads, and strips stale client hints', async () => {
+  const { ctx, calls } = context({ get: async () => ({ data: '<title>Just a moment...</title>' }) });
+  ctx.commonHeaders['sec-ch-ua'] = 'Chromium 120';
+  ctx.commonHeaders['Sec-CH-UA-Platform'] = 'Windows';
+  let options;
+  ctx.openWebView = async (url, opts) => { options = opts; return { data: listing, cookies: '', userAgent: 'test-agent', url }; };
+  await getPosts({ ...params(ctx), filter: '/' });
+  assert.equal(calls[0].config.headers['sec-ch-ua'], undefined);
+  assert.equal(options.headers['Sec-CH-UA-Platform'], undefined);
+  assert.equal(options.headers['User-Agent'], 'test-agent');
+  let inspect, cleared = false;
+  const messages = [];
+  const document = { readyState: 'complete', title: 'Just a moment...', body: {}, documentElement: { outerHTML: '<title>Just a moment...</title>' }, querySelector: () => null, querySelectorAll: () => [] };
+  vm.runInNewContext(options.injectedJavaScript, {
+    document, window: { ReactNativeWebView: { postMessage: message => messages.push(JSON.parse(message)) } },
+    setInterval: callback => { inspect = callback; return 1; }, clearInterval: () => { cleared = true; },
+  });
+  assert.equal(messages.length, 0);
+  document.title = 'MKVCinemas'; document.documentElement.outerHTML = listing; document.querySelector = () => ({});
+  inspect();
+  assert.equal(messages[0].__waf, true);
+  assert.equal(messages[0].data, listing);
+  assert.equal(cleared, true);
+  inspect(); assert.equal(messages.length, 1);
 });
