@@ -140,6 +140,8 @@ export async function page(ctx: ProviderContext, url: string, signal?: AbortSign
       headers: { ...browserHeaders(ctx), ...(referer ? { Referer: referer } : {}) },
       timeoutMs: 120000,
       force: true,
+      // Vega Desktop 2.0.6 ignores injectedJavaScript; its supported completion path is a new cookie.
+      waitForCookie: "cf_clearance",
       injectedJavaScript: READ_PAGE_SCRIPT,
     });
     checkAbort(signal);

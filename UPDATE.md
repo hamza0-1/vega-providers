@@ -1,14 +1,9 @@
-# Update MKVCinemas to 1.0.1
+# MKVCinemas 1.0.2: Vega Desktop 2.0.6 compatibility
 
-1. Extract this ZIP.
-2. Open https://github.com/hamza0-1/vega-providers in your browser.
-3. At the repository root, choose Add file -> Upload files.
-4. Drag the `providers` folder, `dist` folder, and `manifest.json` from inside this extracted update folder onto the upload page.
-5. Commit the changes. The new manifest version must read `1.0.1`.
-6. Close the existing MKVCinemas verification window in Vega. Use the extension update/refresh action, or remove and re-add the repository URL if your app version does not expose one. Then restart Vega and select MKVCinemas again.
+Extract this ZIP. At the root of https://github.com/hamza0-1/vega-providers choose Add file -> Upload files and drag in `providers`, `dist`, and `manifest.json`. Commit the changes. Refresh/reinstall the extension in Vega so it loads provider version 1.0.2.
 
-This update adds the required completion signal for Vega Desktop after real page content loads, removes inconsistent client-hint headers, rejects LiteSpeed/other error pages, and uses a fresh verification-session namespace. It does not bypass website challenges or guarantee that the website will permit Vega's embedded browser.
+Version 1.0.1 used the current development branch's WebView completion API. The released Vega Desktop 2.0.6 does not implement injectedJavaScript. It auto-completes verification only when the cookie specified by waitForCookie appears. Version 1.0.2 adds the supported cf_clearance cookie completion path while retaining the script for newer app builds.
 
-TypeScript and 18 offline regression tests passed. On-device validation remains necessary. This version was checked against the current Vega Desktop verification implementation; the installed app version may differ.
+This corrects completion compatibility. It does not fix or bypass a website's LiteSpeed 403 denial. If 403 persists, the embedded browser still cannot access the site, and there is no verified provider-only fix at this point. A working session in a regular browser does not automatically transfer to Vega. No final media playback has been verified.
 
-If the updated provider still shows 403, report that it persists on 1.0.1 and include your Vega version. A working regular browser session does not mean Vega shares its cookies or request behavior.
+TypeScript and all 18 offline regression tests pass, including an assertion that the supported 2.0.6 completion option is provided. Actual website verification still requires a test in the user's app.
