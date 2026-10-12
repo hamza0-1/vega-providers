@@ -7,6 +7,7 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
+    "test:mkvcinemas": "npm run build && node tests/mkvcinemas.test.js",
     "test": "node tests/test-providers.js",
     "test:provider": "node tests/test-provider.js",
     "build": "node build-bundled.js",

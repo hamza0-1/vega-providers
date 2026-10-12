@@ -1,528 +1,98 @@
-# Vega App Provider Extensions
+# MKVCinemas provider for Vega
 
-Welcome to the Vega App Provider Template! Providers are JS scripts that run in a sandbox environment. This repository provides the structure and tools you need to create custom providers (extensions) for the Vega App.
+Version: 1.0.0. Built from `vega-org/providers-template` commit `4e53b30194f8e5ada1f23d99c8db57291fadf266`.
+Default website: https://mkvcinemas.fo/
 
-## Getting Started
+## What is included
 
-Follow these steps to create your own providers:
+- Category browsing, language filters, paginated lists, and paginated search.
+- Movie/series metadata, posters, cast, language/year tags, and available source groups.
+- Deferred episode/part lists from Filesdl. Combined episode files retain their real part labels.
+- Filesdl quality/server discovery, MKVCDN and Filesdl/VCloud download-control extraction.
+- HEAD-based media resolution with bounded redirects, source deduplication, and alternate-host fallback.
+- Optional Vega WebView verification, cookies scoped to each challenged origin, and request cancellation.
+- Website-domain override, preferred quality, verification toggle, and timeout settings.
+- All six compiled modules in `dist/mkvcinemas/`, source, manifest, template tools, and regression tests.
 
-### 1. Fork this Repository
-Click the "Fork" button at the top right of this page to create your own copy of this repository.
-**Recommended:** Name your forked repository exactly `vega-providers`. This makes it easier to add your providers to the Vega app later!
+## Validation status and limits
 
-### 2. Clone Your Fork
-Clone your newly forked repository to your local machine:
-```sh
-git clone https://github.com/YOUR_USERNAME/vega-providers.git
-cd vega-providers
-npm install
-```
+TypeScript checking and 16 offline regression tests passed. The compiled modules also loaded in a JavaScript VM without Node's `require` or `module` globals.
 
-### 3. Create Your Provider
-There is a sample provider included in the `providers/example` folder to help you get started.
-- Review the code in `providers/example` to see how everything is connected.
-- Once you're ready, **delete the `example` folder** and create a new folder for your own provider (e.g., `providers/myProvider`).
+Live browser inspection confirmed the homepage, search results, movie details, series details, Filesdl quality groups, combined series parts, and MKVCDN/VCloud download controls. The fixtures in the regression tests are reduced versions of these observed structures with synthetic tokens/media URLs.
 
-### 4. Build Your Provider
-When you have finished writing your provider's code, you need to bundle it into the `dist/` directory before the app can use it:
-```sh
-npm run build
-```
-Make sure to commit and push the built files to your GitHub repository so the app can fetch them.
+**Final video playback and downloads have not been verified inside Vega.** Direct HTTP/CLI requests encounter Cloudflare. The stock template CLI context has no working `openWebView` or `kvStore`; its live integration test stopped at browsing with a verification-required error. Successful offline tests do not establish live playback.
 
-### 5. Use It In The App
-To install your custom provider in the Vega app:
-1. Open the app and navigate to the Extensions/Providers settings.
-2. If you named your repository exactly `vega-providers`, simply enter your **GitHub Username**.
-3. If you used a different name, you must enter the **Full Repository URL** (e.g., `https://github.com/YOUR_USERNAME/your-repo-name`).
+The stream resolver requires working HEAD responses/redirects identifying a media file. A host that rejects HEAD, requires another browser interaction, or returns an HTML interstitial will fail with an explicit error rather than be returned as a fake video source. App client handling of HEAD and redirects still needs an on-device check.
 
----
+Older titles may link to `hubdrive.one`; the inspected host returned Cloudflare **522 (origin connection timeout)**. Those links remain in metadata. The legacy handler can follow supported media/cloud links if the host recovers, but its extraction could not be verified live. Unknown host layouts, account-only GDFLIX routes, Telegram files, and GoFile page/API resolution are not implemented.
 
-## Provider Folder Structure
+## Install as a new provider repository
 
-Each provider lives in its own folder under `providers/`:
+1. Extract the ZIP. The `mkvcinemas-provider` folder is the repository root.
+2. Create or use your GitHub repository, preferably named `vega-providers`.
+3. Upload/commit the repository contents, including **`manifest.json` and `dist/mkvcinemas/`**. Do not upload the ZIP as the installation asset.
+4. In Vega's provider/extension settings, add your GitHub username for a repository named `vega-providers`, or enter the full repository URL.
+5. Select MKVCinemas. Leave Website verification enabled and complete the site's verification when Vega opens its WebView.
+6. Check a movie and a series part on your device before relying on playback/downloads.
 
-```
-providers/
-  myProvider/
-    catalog.ts
-    meta.ts
-    posts.ts
-    stream.ts
-    episodes.ts (optional)
-```
+No GitHub repository has been created or published by this task.
 
-## File Explanations
+## Add to an existing template repository
 
-### 0. `manifest.json`
+Copy `providers/mkvcinemas/` into your existing `providers/` directory. Keep the shared `providers/types.ts` and `providers/providerErrors.ts` from this template version. Merge this entry into your existing manifest instead of replacing other entries:
 
-The `manifest.json` file located in the root of the repository defines the metadata for all providers included in your repository. The Vega app reads this manifest to discover, display, and configure your providers.
-
-**Example `manifest.json`:**
 ```json
-[
-  {
-    "display_name": "My Provider",
-    "value": "myProvider",
-    "version": "1.0",
-    "icon": "",
-    "type": "global",
-    "disabled": false
-  }
-]
-```
-
-- **`display_name`**: The human-readable name of your provider shown in the app.
-- **`value`**: The internal ID of your provider. This **must exactly match** the name of the folder you created in `providers/` (e.g., `myProvider`).
-- **`version`**: The current version of your provider (after changes in a provider bump the version provider will update autmatically in app).
-- **`icon`**: An optional URL to an icon image for your provider.
-- **`type`**: The scope of your provider (usually set to `"global"`).
-- **`disabled`**: If set to `true`, the app will hide and disable this provider.
-
-**Important:** Every time you add a new provider folder to `providers/`, you **must** add a corresponding entry to `manifest.json`!
-
-### 1. `catalog.ts`
-
-<img src="https://github.com/user-attachments/assets/40e5da3d-326d-4f5c-b266-a4167da2a269" width="200"/>
-
-- **Purpose:** Defines the categories or filters available for your provider.
-- **How it's used:**
-  - The `title` property will be shown as the heading on the home page (e.g., "Popular Movies").
-  - The `filter` property is passed to the `getPosts` function in `posts.ts`.
-  - For example, if you define `{ title: "Popular Movies", filter: "/category/popular-movies" }`, then home-page heading will show "Popular Movies" and `/category/popular-movies` will be sent to `getPosts` as the `filter` argument. Your `getPosts` implementation should use this to fetch and return the relevant items (e.g., popular movies).
-  - The same logic applies to `genres`: each genre object has a `title` (displayed as a heading) and a `filter` (used to fetch genre-specific items).
-- **Exports:**
-  - `catalog`: An array of objects with `title` and `filter` fields.
-  - `genres`: (optional) An array for genre filters.
-
-### 2. `meta.ts`
-
-- **Purpose:** Fetches metadata for a specific item (movie, show, etc.).
-- **Exports:**
-  - `getMeta({ link, providerContext })`: Returns an `Info` object with details like title, synopsis, image, etc.
-
-### 3. `posts.ts`
-
-- **Purpose:** Fetches lists of items (posts) and handles search.
-- **Exports:**
-  - `getPosts({ filter, page, providerValue, signal, providerContext })`: Returns an array of `Post` objects for a given filter and page.
-  - `getSearchPosts({ searchQuery, page, providerValue, signal, providerContext })`: (optional) Returns search results as an array of `Post` objects.
-
-### 4. `stream.ts`
-
-- **Purpose:** Fetches streaming and downloadable links/sources for a given item.
-- **Exports:**
-  - `getStream({ link, type, signal, providerContext, isDownload })`: Returns an array of `Stream` objects with streaming info.
-  - **`isDownload?: boolean` parameter:**
-    - When `true`, the user is downloading the media (quick download or download sheet). Providers can prioritize download-friendly or download-only servers at the top of the returned array.
-    - When `false` or omitted, providers should prioritize streaming-friendly servers (e.g. HLS/m3u8, direct streaming web players).
-    - **Important:** Always return all available servers regardless of `isDownload`. The app will use the 1st server for Quick Download while enabling the user to choose alternative servers in the download dialog.
-
-### 5. `episodes.ts` (Optional)
-
-- **Purpose:** Handles episode-specific logic for series.
-- **When to use:**
-  - This file is optional and not required for all providers. Some providers return the full episode list directly in the metadata from `getMeta`, but others require a separate request to fetch episodes for a specific season.
-  - If your provider's `getMeta` function cannot return all episodes at once, you can return a `linkList` like this:
-    ```js
-    linkList: [
-      {
-        title: "season 1",
-        episodesLink: "/season-1",
-      },
-    ];
-    ```
-  - When a user selects a season, the `episodesLink` value (e.g., `/season-1`) will be sent as the `url` argument to `getEpisodes` in `episodes.ts`.
-  - Your `getEpisodes` function should then fetch and return the list of episodes for that season.
-- **Exports:**
-  - `getEpisodes({ url, providerContext })`: Returns an array of `EpisodeLink` objects for the given season or episode group.
-
-## `providerContext`?
-
-`providerContext` is an object passed to each function, providing shared utilities and dependencies, such as:
-
-- `axios`: For HTTP requests
-- `cheerio`: For HTML parsing
-- `commonHeaders`: Standard HTTP headers
-
-This ensures all providers use the same tools and patterns, making code easier to maintain and extend.
-
-## Reference Types
-
-All function signatures and return types should use the interfaces from `providers/types.ts`:
-
-- `Post`, `Info`, `Stream`, `EpisodeLink`, etc.
-
-## Example: `posts.ts`
-
-```ts
-import { Post, ProviderContext } from "../types";
-
-export const getPosts = async function ({
-  filter,
-  page,
-  providerValue,
-  signal,
-  providerContext,
-}: {
-  filter: string;
-  page: number;
-  providerValue: string;
-  signal: AbortSignal;
-  providerContext: ProviderContext;
-}): Promise<Post[]> {
-  // ...implementation...
-};
-
-export const getSearchPosts = async function ({
-  searchQuery,
-  page,
-  providerValue,
-  signal,
-  providerContext,
-}: {
-  searchQuery: string;
-  page: number;
-  providerValue: string;
-  signal: AbortSignal;
-  providerContext: ProviderContext;
-}): Promise<Post[]> {
-  // ...implementation...
-};
-```
-
-## Example: `catalog.ts`
-
-```ts
-// catalog.ts
-export const catalog = [
-  { title: "Popular Movies", filter: "/category/popular-movies" },
-  { title: "Latest TV Shows", filter: "/category/latest-tv-shows" },
-];
-
-export const genres = [
-  { title: "Action", filter: "/genre/action" },
-  { title: "Drama", filter: "/genre/drama" },
-];
-```
-
-## Example: `meta.ts`
-
-```ts
-// meta.ts
-import { Info, ProviderContext } from "../types";
-
-export const getMeta = async function ({
-  link,
-  providerContext,
-}: {
-  link: string;
-  providerContext: ProviderContext;
-}): Promise<Info> {
-  // Fetch and parse metadata for the item
-  // ...implementation...
-  return {
-    title: "Example Movie",
-    synopsis: "A sample synopsis.",
-    image: "https://example.com/image.jpg",
-    imdbId: "tt1234567",
-    type: "movie",
-    linkList: [],
-  };
-};
-```
-
-## Example: `stream.ts`
-
-```ts
-// stream.ts
-import { Stream, ProviderContext } from "../types";
-
-export const getStream = async function ({
-  link,
-  type,
-  signal,
-  providerContext,
-  isDownload,
-}: {
-  link: string;
-  type: string;
-  signal?: AbortSignal;
-  providerContext: ProviderContext;
-  isDownload?: boolean;
-}): Promise<Stream[]> {
-  // Fetch and return streaming sources
-  // If isDownload is true, place download-optimized servers first:
-  // const servers = ...
-  return [
-    {
-      server: "ExampleServer",
-      link: "https://example.com/stream.m3u8",
-      type: "m3u8",
-      quality: "1080",
-    },
-  ];
-};
-```
-
-## Example: `episodes.ts` (Optional)
-
-```ts
-// episodes.ts
-import { EpisodeLink, ProviderContext } from "../types";
-
-export const getEpisodes = async function ({
-  url,
-  providerContext,
-}: {
-  url: string;
-  providerContext: ProviderContext;
-}): Promise<EpisodeLink[]> {
-  // Fetch and return episode links
-  // ...implementation...
-  return [
-    { title: "Episode 1", link: "https://example.com/ep1" },
-    { title: "Episode 2", link: "https://example.com/ep2" },
-  ];
-};
-```
-
-## About `linkList` in `meta.ts`
-
-The `linkList` property in the object returned by `getMeta` is used to describe available seasons, episodes, or direct download/stream links for the item.
-
-<img src="https://github.com/user-attachments/assets/f5dc31fc-0701-4d97-8056-01a58ecdefc0" width="200"/>
-
-- Each entry in `linkList` can represent a season or anything you want; it will be shown in the dropdown.
-- If your provider requires an extra request to fetch episodes for a season, set the `episodesLink` property. When the user selects that season, the app will call `getEpisodes` with this value.
-- If your provider does not require an extra request (i.e., you already have all episode links), you can return them directly in the `directLinks` array. Each `directLinks` entry should have a `link`, `title`, and `type` (e.g., "movie" or "series").
-- The `quality` property can be used to indicate video quality (e.g., "1080").
-
-### Example
-
-```js
-linkList: [
-  {
-    title: "Season 2",
-    episodesLink: "",
-    directLinks: [
-      {
-        link: "https://example.com/download",
-        title: "Episode 1",
-        type: "movie",
-      },
-      // ...more episodes or links
-    ],
-    quality: "1080",
-  },
-];
-```
-
-- If you use `directLinks`, the app will send the selected link directly to `getStream` when needed, skipping the need for an extra episode request.
-- If you use `episodesLink`, the app will call `getEpisodes` to fetch the episode list for that season or group.
-
-This gives you flexibility to support both providers that need extra requests for episodes and those that can return all links up front.
-
----
-
-# Advanced: Settings & Key-Value Storage
-
-Providers can expose custom settings in the Vega app (such as custom mirror URLs, quality preferences, resolution filters, API keys, or toggles) and persist state across sessions using the built-in Key-Value Store (`kvStore`).
-
-## 1. Provider Settings (`settings.ts`)
-
-To provide a native settings UI in the Vega App's **Provider Settings**, add a `settings.ts` file inside your provider folder.
-
-### `settings.ts` Signature
-Export an async function `getSettingsSchema`:
-
-```ts
-import { ProviderContext, SettingsField } from "../types";
-
-export const getSettingsSchema = async function ({
-  providerContext,
-}: {
-  providerContext: ProviderContext;
-}): Promise<SettingsField[]> {
-  return [
-    // Array of settings field definitions
-  ];
-};
-```
-
-### Supported Field Types
-
-| Field Type | UI Component | Value Type | Properties |
-|---|---|---|---|
-| `'select'` | Native Dropdown Menu | `string` | `key`, `label`, `description?`, `options: { label, value }[]`, `defaultValue?` |
-| `'multiselect'` | Checkbox List Group | `string[]` | `key`, `label`, `description?`, `options: { label, value }[]`, `defaultValue?: string[]` |
-| `'toggle'` | Switch Toggle (On/Off) | `boolean` | `key`, `label`, `description?`, `defaultValue?: boolean` |
-| `'text'` | Text Input Field | `string` | `key`, `label`, `description?`, `placeholder?`, `defaultValue?: string` |
-| `'number'` | Numeric Input Field | `number` | `key`, `label`, `description?`, `min?`, `max?`, `defaultValue?: number` |
-
-### Complete Example: `settings.ts`
-
-```ts
-import { ProviderContext, SettingsField } from "../types";
-
-export const getSettingsSchema = async function ({
-  providerContext,
-}: {
-  providerContext: ProviderContext;
-}): Promise<SettingsField[]> {
-  return [
-    {
-      key: "preferredQuality",
-      type: "select",
-      label: "Preferred Streaming Quality",
-      description: "Default streaming quality when multiple are available",
-      options: [
-        { label: "Auto (Best Available)", value: "auto" },
-        { label: "1080p Full HD", value: "1080" },
-        { label: "720p HD", value: "720" },
-        { label: "480p SD", value: "480" },
-      ],
-      defaultValue: "auto",
-    },
-    {
-      key: "allowedResolutions",
-      type: "multiselect",
-      label: "Allowed Resolutions",
-      description: "Choose which video resolutions to show in playback sources",
-      options: [
-        { label: "4K Ultra HD (2160p)", value: "2160" },
-        { label: "1080p Full HD", value: "1080" },
-        { label: "720p HD", value: "720" },
-        { label: "480p SD", value: "480" },
-      ],
-      defaultValue: ["2160", "1080", "720"],
-    },
-    {
-      key: "baseUrlOverride",
-      type: "text",
-      label: "Custom Mirror Domain",
-      description: "Override default domain if main website is blocked in your region",
-      placeholder: "https://my-mirror.com",
-      defaultValue: "",
-    },
-    {
-      key: "autoSubtitles",
-      type: "toggle",
-      label: "Auto-enable English Subtitles",
-      description: "Automatically load English subtitles when available",
-      defaultValue: true,
-    },
-    {
-      key: "requestTimeout",
-      type: "number",
-      label: "Request Timeout (seconds)",
-      description: "Maximum response wait time for requests",
-      defaultValue: 15,
-      min: 5,
-      max: 60,
-    },
-  ];
-};
-```
-
-## 2. Key-Value Storage (`providerContext.kvStore`)
-
-Each provider has access to an isolated, persistent Key-Value Store through `providerContext.kvStore`. 
-
-Values configured by the user via the Settings modal are automatically saved to this store under the corresponding `key`. You can also write, read, and delete custom data directly in your scraper functions.
-
-### `kvStore` API
-
-```ts
-interface ProviderKvStore {
-  // Retrieve a stored value by key
-  get: <T = unknown>(key: string) => Promise<T | undefined>;
-
-  // Store a value (serializable objects, arrays, primitives)
-  set: (key: string, value: unknown) => Promise<void>;
-
-  // Delete a specific key
-  delete: (key: string) => Promise<boolean>;
-
-  // List all stored keys for this provider
-  keys: () => Promise<string[]>;
-
-  // Clear all stored data for this provider
-  clear: () => Promise<void>;
+{
+  "display_name": "MKVCinemas",
+  "value": "mkvcinemas",
+  "version": "1.0.0",
+  "icon": "",
+  "type": "global",
+  "hasSettings": true,
+  "disabled": false
 }
 ```
 
-### Reading Settings Inside Scrapers (`posts.ts`, `stream.ts`, etc.)
+Then build and commit `dist/mkvcinemas/` along with the source and manifest. Increment the manifest version after provider updates.
 
-```ts
-import { Stream, ProviderContext } from "../types";
+## Develop and test
 
-export const getStream = async function ({
-  link,
-  type,
-  signal,
-  providerContext,
-  isDownload,
-}: {
-  link: string;
-  type: string;
-  signal?: AbortSignal;
-  providerContext: ProviderContext;
-  isDownload?: boolean;
-}): Promise<Stream[]> {
-  const { axios, kvStore } = providerContext;
+Use a current Node.js runtime supporting the template's dependencies and Node's built-in test runner.
 
-  // 1. Read user configured settings
-  const customDomain = (await kvStore.get<string>("baseUrlOverride")) || "https://example.com";
-  const preferredQuality = (await kvStore.get<string>("preferredQuality")) || "auto";
-  const allowedResolutions = (await kvStore.get<string[]>("allowedResolutions")) || ["1080", "720"];
-
-  // 2. Use in scraper requests
-  const response = await axios.get(`${customDomain}${link}`);
-  // ... parse streams and filter by allowedResolutions ...
-
-  return streams;
-};
+```sh
+npm install
+npm run build
+npx tsc --noEmit
+node tests/mkvcinemas.test.js
 ```
 
----
+`npm run test:mkvcinemas` rebuilds and runs the offline regression suite.
 
-# How to Test Your Provider
+The original template CLI tools remain available:
 
-## Test with CLI
+```sh
+npm test -- mkvcinemas
+npm run test:provider -- mkvcinemas getPosts --rebuild
+npm run auto
+```
 
-1. Run `npm test -- provider_name` (example: `npm test -- showbox`)
-   - This will do full testing by picking random posts and episodes and testing end-to-end.
-2. Run `npm run test:provider -- provider_name function_name` (example: `npm run test:provider -- showbox getPosts`)
-   - This is for testing a single function, such as getPosts, getSearchPosts, getStream, etc. After entering manually, enter the input.
+Live CLI commands can fail on Cloudflare even when the page works in a browser. The template integration runner also reports some failures without a nonzero exit status; read its result summary. The template build script logs per-module failures, so verify all six provider outputs exist and use the TypeScript/regression checks.
 
-## Test in App
+For local app testing, `npm run auto` serves files on port 3001. In your Vega app's `src/lib/services/ExtensionManager.ts`, use the template-documented configuration:
 
-1. **Start the Dev Server**
-   - Run the following command in your terminal:
-     ```sh
-     npm run auto
-     ```
-   - This will start the development server and log a "Mobile test url" (e.g., `http://<your-local-ip>:3001`).
+```ts
+private testMode = true;
+private baseUrlTestMode = "http://YOUR_LOCAL_IP:3001";
+```
 
-2. **Configure the Vega App for Local Testing**
-   - Open your Vega app project.
-   - Go to `src/lib/services/ExtensionManager.ts`.
-   - Set the following variables in class ExtensionManager:
-     ```ts
-     private testMode = true;
-     private baseUrlTestMode = "http://<your-local-ip>:3001"; // Use the Mobile test url from the dev server
-     ```
-   - This tells the app to use your local providers for testing.
+Use the printed Mobile Test URL and put the phone/computer on the same network. These app source changes are made in your Vega app project, not this provider repository. See `TEMPLATE-README.md` for the original template instructions.
 
-3. **Network Requirement**
-   - Make sure both your development machine (running the dev server) and your mobile device (running the Vega app) are on the same network.
+## Implementation notes
 
-4. **Test in the App**
-   - App will now use your local provider code for all requests.
+`shared.ts` is bundled into each entry module; it needs no separate app entry. Provider functions use only the injected context and local helpers. The Node dependencies belong to the development/test tooling.
 
----
+Series episode links encode a Filesdl group index in `#mkvcinemas-group=N`. `getStream` fetches that listing and selects only the requested group so playing one part cannot resolve a different part. Source layouts changing between selection and playback may require reopening the title.
 
-This workflow allows you to quickly test and debug new providers before deploying them.
+MKVCinemas sometimes assigns the same Filesdl URL to several advertised qualities. The provider deduplicates those links and trusts the actual Filesdl group headings; it does not invent a 2160p source just because a button says 2160p.
 
-Follow this structure and naming convention to ensure your provider integrates smoothly with the project.
+Expired media URLs are regenerated by resolving the cloud page on every stream request. Verification cookies expire locally after 30 minutes and are sent only to the origin they belong to. The preferred-quality setting orders available sources without removing alternatives.
